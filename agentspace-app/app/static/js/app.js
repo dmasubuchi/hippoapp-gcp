@@ -150,7 +150,7 @@ async function fetchAudioInfo(audioId) {
  * Load audio library from API
  */
 async function loadAudioLibrary() {
-    // This would normally fetch from the API
+    // This would normally fetch from the API using the "language-learning-audio" bucket
     // For now, we'll use placeholder data
     const audioFiles = [
         {

@@ -3,6 +3,7 @@ Main application entry point for the Hippo Family Club language learning app.
 """
 import os
 import logging
+from typing import Optional
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -74,7 +75,7 @@ async def get_audio(file_id: str):
 async def play_audio(
     file_id: str, 
     start_time: float = 0, 
-    end_time: float = None, 
+    end_time: Optional[float] = None, 
     speed: float = 1.0,
     repeat: bool = False
 ):
@@ -92,7 +93,7 @@ async def play_audio(
         Streaming response with audio data
     """
     try:
-        return process_audio_playback(file_id, start_time, end_time, speed, repeat)
+        return process_audio_playback(file_id, int(start_time), int(end_time) if end_time is not None else None, speed, repeat)
     except Exception as e:
         logger.error(f"Error playing audio file {file_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error playing audio: {str(e)}")
