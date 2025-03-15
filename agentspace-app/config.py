@@ -2,41 +2,61 @@
 Configuration settings for the application.
 """
 import os
-from pathlib import Path
+from dotenv import load_dotenv
 
-# Base directory
-BASE_DIR = Path(__file__).resolve().parent
+# Load environment variables from .env file if it exists
+load_dotenv()
 
-# Debug mode
-DEBUG = os.environ.get("DEBUG", "False").lower() == "true"
+# Application configuration
+APP_CONFIG = {
+    "title": "Hippo Family Club - Multilingual Audio Player",
+    "description": "A multilingual audio player for language learning",
+    "version": "1.0.0",
+    "debug": os.getenv("DEBUG", "False").lower() in ("true", "1", "t"),
+}
 
-# Secret key
-SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-key")
-
-# GCP configuration
+# Google Cloud Storage configuration
 GCS_CONFIG = {
-    "bucket_name": "language-learning-audio",
-    "project_id": "lucid-inquiry-453823-b0",
-    "credentials_path": os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+    "project_id": os.getenv("GCP_PROJECT_ID", "lucid-inquiry-453823-b0"),
+    "bucket_name": os.getenv("GCP_STORAGE_BUCKET", "language-learning-audio"),
+    "credentials_path": os.getenv("GOOGLE_APPLICATION_CREDENTIALS"),
 }
 
-# Audio playback configuration
-PLAYBACK_CONFIG = {
-    "supported_formats": ["mp3", "wav", "flac", "ogg"],
+# Audio configuration
+AUDIO_CONFIG = {
+    "formats": ["mp3", "wav", "ogg"],
+    "max_duration": 3600,  # Maximum duration in seconds
     "default_speed": 1.0,
-    "speed_range": [0.5, 2.0],
-    "buffer_size": 4096,
 }
 
-# Logging configuration
-LOGGING_CONFIG = {
-    "level": "INFO",
-    "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    "file": os.path.join(BASE_DIR, "logs", "app.log"),
-}
-
-# API configuration
-API_CONFIG = {
-    "version": "v1",
-    "prefix": "/api",
+# Language configuration
+LANGUAGE_CONFIG = {
+    "default": "en",
+    "supported": {
+        "en": {
+            "name": "English",
+            "display_name": "English",
+            "flag": "🇺🇸",
+        },
+        "ja": {
+            "name": "Japanese",
+            "display_name": "日本語",
+            "flag": "🇯🇵",
+        },
+        "fr": {
+            "name": "French",
+            "display_name": "Français",
+            "flag": "🇫🇷",
+        },
+        "es": {
+            "name": "Spanish",
+            "display_name": "Español",
+            "flag": "🇪🇸",
+        },
+        "de": {
+            "name": "German",
+            "display_name": "Deutsch",
+            "flag": "🇩🇪",
+        },
+    },
 }
