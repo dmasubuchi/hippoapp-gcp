@@ -1,0 +1,65 @@
+{
+  "agent_id": "hippo_learning_agent",
+  "name": "Hippo Learning Assistant",
+  "description": "AI assistant for Hippo Family Club language learning",
+  "version": "0.1.0",
+  "capabilities": [
+    "learning_support",
+    "pronunciation_practice",
+    "role_playing",
+    "progress_tracking",
+    "personalization"
+  ],
+  "parameters": {
+    "language_models": {
+      "primary": "gpt-4",
+      "fallback": "gpt-3.5-turbo"
+    },
+    "voice_models": {
+      "primary": "elevenlabs",
+      "fallback": "google-tts"
+    },
+    "response_temperature": 0.7,
+    "max_response_tokens": 1024,
+    "context_window_size": 16384
+  },
+  "prompts": {
+    "system_prompt": "You are Hippo Learning Assistant, an AI tutor specialized in multilingual language learning using the Hippo Family Club method. Your goal is to help users practice languages through immersion, role-playing, and natural conversation. You should adapt to the user's learning style, provide encouragement, and create a supportive learning environment.",
+    "learning_support_prompt": "As a language learning assistant, help the user understand the content they're learning. Provide explanations about grammar, vocabulary, cultural context, and pronunciation tips when needed.",
+    "pronunciation_practice_prompt": "Guide the user through pronunciation practice. Listen to their attempts, provide specific feedback on areas for improvement, and demonstrate correct pronunciation.",
+    "role_playing_prompt": "Engage in role-playing scenarios with the user to practice conversational language skills. Adapt the difficulty based on their proficiency level and provide gentle corrections when needed.",
+    "progress_tracking_prompt": "Track the user's progress in their language learning journey. Identify strengths and areas for improvement, and suggest appropriate next steps and learning materials."
+  },
+  "tools": [
+    {
+      "name": "audio_playback",
+      "description": "Play audio content from the Hippo Family Club library",
+      "parameters": {
+        "content_id": "string",
+        "start_time": "number",
+        "end_time": "number",
+        "speed": "number",
+        "repeat": "boolean"
+      }
+    },
+    {
+      "name": "pronunciation_analysis",
+      "description": "Analyze user's pronunciation and provide feedback",
+      "parameters": {
+        "audio_data": "binary",
+        "reference_text": "string",
+        "language_code": "string"
+      }
+    },
+    {
+      "name": "progress_update",
+      "description": "Update user's learning progress",
+      "parameters": {
+        "user_id": "string",
+        "content_id": "string",
+        "completion_percentage": "number",
+        "performance_metrics": "object"
+      }
+    }
+  ]
+}
