@@ -14,8 +14,8 @@ import sys
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent))
-from config import APP_CONFIG, GCS_CONFIG, PLAYBACK_CONFIG, AGENTSPACE_CONFIG
-from app.utils import setup_gcp_services, get_audio_file, process_audio_playback
+from config import APP_CONFIG, GCS_CONFIG, AUDIO_CONFIG, LANGUAGE_CONFIG
+from app.utils import init_gcp_services, get_audio_file, process_audio_playback
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 # Create FastAPI app
 app = FastAPI(
-    title=APP_CONFIG["name"],
+    title=APP_CONFIG["title"],
     description=APP_CONFIG["description"],
     version=APP_CONFIG["version"]
 )
@@ -36,14 +36,15 @@ templates = Jinja2Templates(directory=str(templates_dir))
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 # Create cache directory if it doesn't exist
-os.makedirs(PLAYBACK_CONFIG["cache_directory"], exist_ok=True)
+cache_dir = "/tmp/hippoapp-cache"
+os.makedirs(cache_dir, exist_ok=True)
 
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on startup."""
     try:
         # Set up GCP services
-        setup_gcp_services()
+        init_gcp_services()
         logger.info("Application started successfully")
     except Exception as e:
         logger.error(f"Error during startup: {str(e)}")
@@ -98,24 +99,15 @@ async def play_audio(
         logger.error(f"Error playing audio file {file_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error playing audio: {str(e)}")
 
-@app.post("/api/agent/query")
-async def agent_query(request: Request):
+@app.get("/api/languages")
+async def get_languages():
     """
-    Send a query to the Agentspace learning agent.
+    Get supported languages.
     
-    Args:
-        request: Request object containing query parameters
-        
     Returns:
-        JSON response with agent response
+        JSON response with supported languages
     """
-    try:
-        data = await request.json()
-        # TODO: Implement Agentspace API integration
-        return JSONResponse(content={"message": "Agent integration not yet implemented"})
-    except Exception as e:
-        logger.error(f"Error querying agent: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error querying agent: {str(e)}")
+    return JSONResponse(content=LANGUAGE_CONFIG["supported"])
 
 @app.get("/api/health")
 async def health_check():
@@ -123,9 +115,12 @@ async def health_check():
     return {"status": "healthy"}
 
 if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8080))
+    host = os.environ.get("HOST", "0.0.0.0")
+    
     uvicorn.run(
         "app.main:app", 
-        host=APP_CONFIG["host"], 
-        port=APP_CONFIG["port"],
-        reload=True
+        host=host, 
+        port=port,
+        reload=APP_CONFIG.get("debug", False)
     )

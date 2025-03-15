@@ -1,129 +1,126 @@
 """
-Utility functions for the Hippo Family Club language learning app.
+Utility functions for the application.
 """
 import os
 import logging
-import tempfile
-from pathlib import Path
-import sys
 from google.cloud import storage
-from fastapi.responses import StreamingResponse
+from google.oauth2 import service_account
 from pydub import AudioSegment
-import io
+from fastapi.responses import StreamingResponse
+from io import BytesIO
 
-# Add parent directory to path for imports
-sys.path.append(str(Path(__file__).parent.parent))
-from config import GCS_CONFIG, PLAYBACK_CONFIG
+from config import GCS_CONFIG
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Global clients
+# Global variables
 storage_client = None
 
-def setup_gcp_services():
-    """Set up Google Cloud Platform services."""
+def init_gcp_services():
+    """
+    Initialize GCP services with credentials.
+    """
     global storage_client
     
     try:
-        # Initialize Storage client
-        storage_client = storage.Client()
+        credentials_path = GCS_CONFIG.get("credentials_path")
+        
+        if credentials_path and os.path.exists(credentials_path):
+            logger.info(f"Using service account credentials from: {credentials_path}")
+            credentials = service_account.Credentials.from_service_account_file(
+                credentials_path
+            )
+            storage_client = storage.Client(
+                project=GCS_CONFIG["project_id"],
+                credentials=credentials
+            )
+        else:
+            logger.info("Using application default credentials")
+            storage_client = storage.Client(project=GCS_CONFIG["project_id"])
+            
         logger.info("GCP services initialized successfully")
     except Exception as e:
         logger.error(f"Error initializing GCP services: {str(e)}")
         raise
 
-def get_audio_file(file_id):
+def list_audio_files(prefix=None, limit=100):
     """
-    Get audio file metadata from Google Cloud Storage.
+    List audio files in the GCS bucket.
     
     Args:
-        file_id: ID of the audio file
+        prefix: Optional prefix to filter files
+        limit: Maximum number of files to return
         
     Returns:
-        dict: Audio file metadata
+        List of file metadata
     """
-    global storage_client
-    
     if storage_client is None:
-        setup_gcp_services()
-    
+        init_gcp_services()
+        
     try:
-        # Get bucket
-        bucket = storage_client.bucket(GCS_CONFIG["bucket_name"])
+        bucket = storage_client.get_bucket(GCS_CONFIG["bucket_name"])
+        blobs = bucket.list_blobs(prefix=prefix, max_results=limit)
         
-        # List blobs with prefix
-        blobs = list(bucket.list_blobs(prefix=f"audio/{file_id}"))
+        files = []
+        for blob in blobs:
+            # Only include audio files
+            if blob.name.endswith(('.mp3', '.wav', '.ogg')):
+                files.append({
+                    "id": blob.name,
+                    "name": os.path.basename(blob.name),
+                    "size": blob.size,
+                    "updated": blob.updated,
+                    "content_type": blob.content_type,
+                    "language": get_language_from_path(blob.name)
+                })
         
-        if not blobs:
-            raise ValueError(f"Audio file {file_id} not found")
-        
-        # Get the first matching blob
-        blob = blobs[0]
-        
-        # Get metadata
-        metadata = {
-            "id": file_id,
-            "name": blob.name,
-            "size": blob.size,
-            "content_type": blob.content_type,
-            "updated": blob.updated.isoformat(),
-            "url": f"gs://{GCS_CONFIG['bucket_name']}/{blob.name}",
-        }
-        
-        # Add custom metadata if available
-        if blob.metadata:
-            metadata.update(blob.metadata)
-        
-        return metadata
+        return files
     except Exception as e:
-        logger.error(f"Error getting audio file {file_id}: {str(e)}")
+        logger.error(f"Error listing audio files: {str(e)}")
         raise
 
-def download_audio_file(file_id):
+def get_language_from_path(path):
     """
-    Download audio file from Google Cloud Storage.
+    Extract language code from file path.
     
     Args:
-        file_id: ID of the audio file
+        path: File path
         
     Returns:
-        str: Path to the downloaded file
+        Language code or None
     """
-    global storage_client
+    # Example path: audio/en/lesson1.mp3
+    parts = path.split('/')
+    if len(parts) >= 2:
+        lang_code = parts[1]
+        if len(lang_code) == 2:  # Simple validation for language code
+            return lang_code
+    return None
+
+def get_audio_file(file_id):
+    """
+    Get audio file from GCS bucket.
     
+    Args:
+        file_id: File ID (path in bucket)
+        
+    Returns:
+        Audio file data
+    """
     if storage_client is None:
-        setup_gcp_services()
-    
+        init_gcp_services()
+        
     try:
-        # Get bucket
-        bucket = storage_client.bucket(GCS_CONFIG["bucket_name"])
+        bucket = storage_client.get_bucket(GCS_CONFIG["bucket_name"])
+        blob = bucket.blob(file_id)
         
-        # List blobs with prefix
-        blobs = list(bucket.list_blobs(prefix=f"audio/{file_id}"))
+        # Download to memory
+        data = BytesIO()
+        blob.download_to_file(data)
+        data.seek(0)
         
-        if not blobs:
-            raise ValueError(f"Audio file {file_id} not found")
-        
-        # Get the first matching blob
-        blob = blobs[0]
-        
-        # Create cache directory if it doesn't exist
-        os.makedirs(PLAYBACK_CONFIG["cache_directory"], exist_ok=True)
-        
-        # Download to cache
-        file_name = os.path.basename(blob.name)
-        local_path = os.path.join(PLAYBACK_CONFIG["cache_directory"], file_name)
-        
-        # Check if file already exists in cache
-        if os.path.exists(local_path) and os.path.getsize(local_path) == blob.size:
-            logger.info(f"Using cached file {local_path}")
-        else:
-            logger.info(f"Downloading {blob.name} to {local_path}")
-            blob.download_to_filename(local_path)
-        
-        return local_path
+        return data
     except Exception as e:
         logger.error(f"Error downloading audio file {file_id}: {str(e)}")
         raise
@@ -149,64 +146,52 @@ def process_audio_playback(file_id, start_time=0, end_time=None, speed=1.0, repe
     Process audio file for playback.
     
     Args:
-        file_id: ID of the audio file
+        file_id: File ID (path in bucket)
         start_time: Start time in seconds
         end_time: End time in seconds
         speed: Playback speed
         repeat: Whether to repeat the audio
         
     Returns:
-        StreamingResponse: Streaming response with audio data
+        Streaming response with audio data
     """
     try:
-        # Download audio file
-        local_path = download_audio_file(file_id)
+        # Get audio file
+        audio_data = get_audio_file(file_id)
         
-        # Get file extension
-        file_ext = os.path.splitext(local_path)[1].lower().replace(".", "")
-        
-        # Load audio file
-        if file_ext == "mp3":
-            audio = AudioSegment.from_mp3(local_path)
-        elif file_ext == "wav":
-            audio = AudioSegment.from_wav(local_path)
-        elif file_ext == "ogg":
-            audio = AudioSegment.from_ogg(local_path)
-        elif file_ext == "flac":
-            audio = AudioSegment.from_file(local_path, format="flac")
-        else:
-            raise ValueError(f"Unsupported audio format: {file_ext}")
+        # Load audio with pydub
+        audio = AudioSegment.from_file(audio_data)
         
         # Apply start and end times
-        start_ms = int(start_time * 1000)
-        end_ms = int(end_time * 1000) if end_time is not None else len(audio)
+        start_ms = start_time * 1000
+        end_ms = end_time * 1000 if end_time is not None else len(audio)
         
-        audio = audio[start_ms:end_ms]
+        # Ensure start and end times are within bounds
+        start_ms = max(0, min(start_ms, len(audio)))
+        end_ms = max(start_ms, min(end_ms, len(audio)))
         
-        # Apply speed adjustment
+        # Extract segment
+        segment = audio[start_ms:end_ms]
+        
+        # Apply speed change
         if speed != 1.0:
-            # Check if speed is within allowed range
-            if speed < PLAYBACK_CONFIG["speed_range"][0] or speed > PLAYBACK_CONFIG["speed_range"][1]:
-                raise ValueError(f"Speed {speed} is outside allowed range {PLAYBACK_CONFIG['speed_range']}")
-            
-            # Adjust speed (this is a simple implementation, more sophisticated methods exist)
-            audio = audio.speedup(playback_speed=speed)
+            segment = segment.speedup(playback_speed=speed)
         
         # Apply repeat if needed
         if repeat:
-            audio = audio * 3  # Repeat 3 times
+            segment = segment * 3  # Repeat 3 times
         
-        # Export to bytes
-        buffer = io.BytesIO()
-        audio.export(buffer, format=file_ext)
-        buffer.seek(0)
+        # Convert to bytes
+        output = BytesIO()
+        segment.export(output, format="mp3")
+        output.seek(0)
         
-        # Create streaming response
+        # Return streaming response
         return StreamingResponse(
-            buffer, 
-            media_type=f"audio/{file_ext}",
-            headers={"Content-Disposition": f"attachment; filename={file_id}.{file_ext}"}
+            output, 
+            media_type="audio/mpeg",
+            headers={"Content-Disposition": f"attachment; filename={os.path.basename(file_id)}"}
         )
     except Exception as e:
-        logger.error(f"Error processing audio playback for {file_id}: {str(e)}")
+        logger.error(f"Error processing audio file {file_id}: {str(e)}")
         raise
