@@ -1,0 +1,37 @@
+app = "hippoapp-gcp"
+primary_region = "sea"
+
+[build]
+  builder = "paketobuildpacks/builder:base"
+
+[env]
+  PORT = "8080"
+  GOOGLE_APPLICATION_CREDENTIALS = "/app/service-account-key.json"
+  GCP_PROJECT_ID = "lucid-inquiry-453823-b0"
+  GCP_STORAGE_BUCKET = "language-learning-audio"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+[mounts]
+  source = "hippoapp_data"
+  destination = "/data"
+
+[[services]]
+  protocol = "tcp"
+  internal_port = 8080
+  processes = ["app"]
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+    force_https = true
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]

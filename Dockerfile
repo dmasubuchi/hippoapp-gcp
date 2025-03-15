@@ -1,23 +1,24 @@
-# Use the official Python image
-FROM python:3.11-slim
+FROM python:3.9-slim
 
-# Set working directory
 WORKDIR /app
 
-# Copy requirements files
-COPY agentspace-app/requirements.txt requirements.txt
-COPY data-ingestion/requirements.txt data-ingestion-requirements.txt
-
-# Install dependencies
-RUN pip install --no-cache-dir -r requirements.txt -r data-ingestion-requirements.txt
+# Copy requirements first for better caching
+COPY agentspace-app/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY agentspace-app/ .
-COPY data-ingestion/scripts/ ./data-ingestion/scripts/
+
+# Create directory for service account key
+RUN mkdir -p /app/credentials
 
 # Set environment variables
-ENV PYTHONUNBUFFERED=1
 ENV PORT=8080
+ENV GOOGLE_APPLICATION_CREDENTIALS=/app/credentials/service-account-key.json
 
-# Run the application
-CMD ["python", "-m", "app.main"]
+# Create a mock service account key for deployment
+# This will be replaced by the actual key during deployment
+RUN echo '{"type":"service_account","project_id":"lucid-inquiry-453823-b0"}' > /app/credentials/service-account-key.json
+
+# Command to run the application
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]

@@ -1,20 +1,23 @@
 """
-Configuration for the Agentspace app module.
+Configuration settings for the application.
 """
+import os
+from pathlib import Path
 
-# Application configuration
-APP_CONFIG = {
-    "name": "HippoLingua",
-    "version": "0.1.0",
-    "description": "Hippo Family Club multilingual learning application",
-    "host": "0.0.0.0",
-    "port": 8080,
-}
+# Base directory
+BASE_DIR = Path(__file__).resolve().parent
 
-# Google Cloud Storage configuration
+# Debug mode
+DEBUG = os.environ.get("DEBUG", "False").lower() == "true"
+
+# Secret key
+SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-key")
+
+# GCP configuration
 GCS_CONFIG = {
     "bucket_name": "language-learning-audio",
     "project_id": "lucid-inquiry-453823-b0",
+    "credentials_path": os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
 }
 
 # Audio playback configuration
@@ -23,39 +26,17 @@ PLAYBACK_CONFIG = {
     "default_speed": 1.0,
     "speed_range": [0.5, 2.0],
     "buffer_size": 4096,
-    "enable_caching": True,
-    "cache_directory": "/tmp/hippoapp-cache",
 }
 
-# Agentspace configuration
-AGENTSPACE_CONFIG = {
-    "api_key": "YOUR_AGENTSPACE_API_KEY",
-    "api_url": "https://api.agentspace.ai/v1",
-    "agents": {
-        "learning_agent": {
-            "config_path": "agents/learning_agent/config.json",
-            "capabilities": [
-                "learning_support",
-                "pronunciation_practice",
-                "role_playing",
-                "progress_tracking",
-                "personalization",
-            ],
-        },
-    },
+# Logging configuration
+LOGGING_CONFIG = {
+    "level": "INFO",
+    "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    "file": os.path.join(BASE_DIR, "logs", "app.log"),
 }
 
-# User data configuration
-USER_DATA_CONFIG = {
-    "storage_type": "firestore",
-    "collection_name": "user_data",
-    "fields": [
-        "user_id",
-        "name",
-        "email",
-        "learning_history",
-        "preferences",
-        "progress",
-        "achievements",
-    ],
+# API configuration
+API_CONFIG = {
+    "version": "v1",
+    "prefix": "/api",
 }

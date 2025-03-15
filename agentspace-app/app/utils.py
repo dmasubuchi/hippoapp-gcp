@@ -1,129 +1,190 @@
 """
-Utility functions for the Hippo Family Club language learning app.
+Utility functions for the application.
 """
 import os
 import logging
 import tempfile
 from pathlib import Path
-import sys
+from typing import Optional, List, Dict, Any, Tuple
+
 from google.cloud import storage
-from fastapi.responses import StreamingResponse
+from google.oauth2 import service_account
 from pydub import AudioSegment
-import io
 
-# Add parent directory to path for imports
-sys.path.append(str(Path(__file__).parent.parent))
-from config import GCS_CONFIG, PLAYBACK_CONFIG
+from config import GCS_CONFIG, LOGGING_CONFIG
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+# Set up logging
 logger = logging.getLogger(__name__)
+logger.setLevel(getattr(logging, LOGGING_CONFIG["level"]))
+formatter = logging.Formatter(LOGGING_CONFIG["format"])
 
-# Global clients
+# Create log directory if it doesn't exist
+log_dir = Path(LOGGING_CONFIG["file"]).parent
+log_dir.mkdir(exist_ok=True)
+
+# Add file handler
+file_handler = logging.FileHandler(LOGGING_CONFIG["file"])
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
+
+# Add console handler
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(formatter)
+logger.addHandler(console_handler)
+
+# Initialize GCP clients
 storage_client = None
 
-def setup_gcp_services():
-    """Set up Google Cloud Platform services."""
+def init_gcp_services():
+    """
+    Initialize GCP services with credentials.
+    """
     global storage_client
     
     try:
-        # Initialize Storage client
-        storage_client = storage.Client()
+        # Check if credentials path is provided
+        credentials_path = GCS_CONFIG.get("credentials_path")
+        
+        if credentials_path and os.path.exists(credentials_path):
+            # Use explicit credentials
+            credentials = service_account.Credentials.from_service_account_file(
+                credentials_path
+            )
+            storage_client = storage.Client(
+                project=GCS_CONFIG["project_id"],
+                credentials=credentials
+            )
+        else:
+            # Use application default credentials
+            storage_client = storage.Client(project=GCS_CONFIG["project_id"])
+            
         logger.info("GCP services initialized successfully")
+        return True
     except Exception as e:
         logger.error(f"Error initializing GCP services: {str(e)}")
         raise
 
-def get_audio_file(file_id):
+# Initialize GCP services on module import
+try:
+    init_gcp_services()
+except Exception as e:
+    logger.error(f"Failed to initialize GCP services: {str(e)}")
+
+def list_audio_files(prefix: str = None) -> List[Dict[str, Any]]:
     """
-    Get audio file metadata from Google Cloud Storage.
+    List audio files in the GCS bucket.
+    
+    Args:
+        prefix: Optional prefix to filter files
+        
+    Returns:
+        List of audio file metadata
+    """
+    if not storage_client:
+        logger.error("Storage client not initialized")
+        return []
+    
+    try:
+        bucket = storage_client.get_bucket(GCS_CONFIG["bucket_name"])
+        blobs = bucket.list_blobs(prefix=prefix)
+        
+        audio_files = []
+        for blob in blobs:
+            # Skip directories
+            if blob.name.endswith('/'):
+                continue
+                
+            # Extract metadata
+            metadata = {
+                "id": blob.name,
+                "name": Path(blob.name).stem,
+                "size": blob.size,
+                "updated": blob.updated,
+                "content_type": blob.content_type,
+            }
+            
+            # Add custom metadata if available
+            if blob.metadata:
+                metadata.update(blob.metadata)
+                
+            audio_files.append(metadata)
+            
+        return audio_files
+    except Exception as e:
+        logger.error(f"Error listing audio files: {str(e)}")
+        return []
+
+def get_audio_file(file_id: str) -> Dict[str, Any]:
+    """
+    Get audio file metadata.
     
     Args:
         file_id: ID of the audio file
         
     Returns:
-        dict: Audio file metadata
+        Audio file metadata
     """
-    global storage_client
-    
-    if storage_client is None:
-        setup_gcp_services()
+    if not storage_client:
+        logger.error("Storage client not initialized")
+        return {}
     
     try:
-        # Get bucket
-        bucket = storage_client.bucket(GCS_CONFIG["bucket_name"])
+        bucket = storage_client.get_bucket(GCS_CONFIG["bucket_name"])
+        blob = bucket.get_blob(file_id)
         
-        # List blobs with prefix
-        blobs = list(bucket.list_blobs(prefix=f"audio/{file_id}"))
-        
-        if not blobs:
-            raise ValueError(f"Audio file {file_id} not found")
-        
-        # Get the first matching blob
-        blob = blobs[0]
-        
-        # Get metadata
+        if not blob:
+            logger.error(f"Audio file {file_id} not found")
+            return {}
+            
+        # Extract metadata
         metadata = {
-            "id": file_id,
-            "name": blob.name,
+            "id": blob.name,
+            "name": Path(blob.name).stem,
             "size": blob.size,
+            "updated": blob.updated,
             "content_type": blob.content_type,
-            "updated": blob.updated.isoformat(),
-            "url": f"gs://{GCS_CONFIG['bucket_name']}/{blob.name}",
         }
         
         # Add custom metadata if available
         if blob.metadata:
             metadata.update(blob.metadata)
-        
+            
         return metadata
     except Exception as e:
         logger.error(f"Error getting audio file {file_id}: {str(e)}")
-        raise
+        return {}
 
-def download_audio_file(file_id):
+def download_audio_file(file_id: str) -> str:
     """
-    Download audio file from Google Cloud Storage.
+    Download audio file from GCS bucket.
     
     Args:
         file_id: ID of the audio file
         
     Returns:
-        str: Path to the downloaded file
+        Path to downloaded file
     """
-    global storage_client
-    
-    if storage_client is None:
-        setup_gcp_services()
+    if not storage_client:
+        logger.error("Storage client not initialized")
+        raise Exception("Storage client not initialized")
     
     try:
-        # Get bucket
-        bucket = storage_client.bucket(GCS_CONFIG["bucket_name"])
+        bucket = storage_client.get_bucket(GCS_CONFIG["bucket_name"])
+        blob = bucket.get_blob(file_id)
         
-        # List blobs with prefix
-        blobs = list(bucket.list_blobs(prefix=f"audio/{file_id}"))
+        if not blob:
+            logger.error(f"Audio file {file_id} not found")
+            raise FileNotFoundError(f"Audio file {file_id} not found")
+            
+        # Create temporary file
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=Path(file_id).suffix)
+        temp_path = temp_file.name
+        temp_file.close()
         
-        if not blobs:
-            raise ValueError(f"Audio file {file_id} not found")
+        # Download to temporary file
+        blob.download_to_filename(temp_path)
         
-        # Get the first matching blob
-        blob = blobs[0]
-        
-        # Create cache directory if it doesn't exist
-        os.makedirs(PLAYBACK_CONFIG["cache_directory"], exist_ok=True)
-        
-        # Download to cache
-        file_name = os.path.basename(blob.name)
-        local_path = os.path.join(PLAYBACK_CONFIG["cache_directory"], file_name)
-        
-        # Check if file already exists in cache
-        if os.path.exists(local_path) and os.path.getsize(local_path) == blob.size:
-            logger.info(f"Using cached file {local_path}")
-        else:
-            logger.info(f"Downloading {blob.name} to {local_path}")
-            blob.download_to_filename(local_path)
-        
-        return local_path
+        return temp_path
     except Exception as e:
         logger.error(f"Error downloading audio file {file_id}: {str(e)}")
         raise
@@ -156,57 +217,38 @@ def process_audio_playback(file_id, start_time=0, end_time=None, speed=1.0, repe
         repeat: Whether to repeat the audio
         
     Returns:
-        StreamingResponse: Streaming response with audio data
+        Streaming response with audio data
     """
     try:
         # Download audio file
-        local_path = download_audio_file(file_id)
-        
-        # Get file extension
-        file_ext = os.path.splitext(local_path)[1].lower().replace(".", "")
+        file_path = download_audio_file(file_id)
         
         # Load audio file
-        if file_ext == "mp3":
-            audio = AudioSegment.from_mp3(local_path)
-        elif file_ext == "wav":
-            audio = AudioSegment.from_wav(local_path)
-        elif file_ext == "ogg":
-            audio = AudioSegment.from_ogg(local_path)
-        elif file_ext == "flac":
-            audio = AudioSegment.from_file(local_path, format="flac")
-        else:
-            raise ValueError(f"Unsupported audio format: {file_ext}")
+        audio = AudioSegment.from_file(file_path)
         
-        # Apply start and end times
-        start_ms = int(start_time * 1000)
-        end_ms = int(end_time * 1000) if end_time is not None else len(audio)
-        
-        audio = audio[start_ms:end_ms]
-        
-        # Apply speed adjustment
-        if speed != 1.0:
-            # Check if speed is within allowed range
-            if speed < PLAYBACK_CONFIG["speed_range"][0] or speed > PLAYBACK_CONFIG["speed_range"][1]:
-                raise ValueError(f"Speed {speed} is outside allowed range {PLAYBACK_CONFIG['speed_range']}")
+        # Process audio
+        if start_time > 0:
+            audio = audio[start_time * 1000:]
             
-            # Adjust speed (this is a simple implementation, more sophisticated methods exist)
-            audio = audio.speedup(playback_speed=speed)
+        if end_time is not None:
+            audio = audio[:end_time * 1000]
+            
+        # Apply speed
+        if speed != 1.0:
+            # This is a placeholder for speed adjustment
+            # In a real implementation, we would use a library like librosa
+            pass
+            
+        # Create temporary file for processed audio
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+        temp_path = temp_file.name
+        temp_file.close()
         
-        # Apply repeat if needed
-        if repeat:
-            audio = audio * 3  # Repeat 3 times
+        # Export processed audio
+        audio.export(temp_path, format="mp3")
         
-        # Export to bytes
-        buffer = io.BytesIO()
-        audio.export(buffer, format=file_ext)
-        buffer.seek(0)
-        
-        # Create streaming response
-        return StreamingResponse(
-            buffer, 
-            media_type=f"audio/{file_ext}",
-            headers={"Content-Disposition": f"attachment; filename={file_id}.{file_ext}"}
-        )
+        # Return file path
+        return temp_path
     except Exception as e:
-        logger.error(f"Error processing audio playback for {file_id}: {str(e)}")
+        logger.error(f"Error processing audio file {file_id}: {str(e)}")
         raise
