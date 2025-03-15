@@ -9,7 +9,7 @@ from pydub import AudioSegment
 from fastapi.responses import StreamingResponse
 from io import BytesIO
 
-from config import GCS_CONFIG
+from config import GCS_CONFIG, APP_CONFIG
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -26,6 +26,20 @@ def init_gcp_services():
     try:
         credentials_path = GCS_CONFIG.get("credentials_path")
         
+        # For local development with mock credentials
+        if APP_CONFIG.get("debug", False):
+            logger.warning("Debug mode enabled, using mock credentials for local development")
+            try:
+                # Try to use default credentials
+                storage_client = storage.Client(project=GCS_CONFIG["project_id"])
+                logger.info("Successfully initialized with default credentials")
+            except Exception as e:
+                logger.warning(f"Could not initialize with default credentials: {str(e)}")
+                # Continue without a storage client for local development
+                storage_client = None
+            return
+            
+        # For production with real credentials
         if credentials_path and os.path.exists(credentials_path):
             logger.info(f"Using service account credentials from: {credentials_path}")
             credentials = service_account.Credentials.from_service_account_file(
@@ -42,7 +56,11 @@ def init_gcp_services():
         logger.info("GCP services initialized successfully")
     except Exception as e:
         logger.error(f"Error initializing GCP services: {str(e)}")
-        raise
+        if APP_CONFIG.get("debug", False):
+            logger.warning("Continuing with mock services for local development")
+            storage_client = None
+        else:
+            raise
 
 def list_audio_files(prefix=None, limit=100):
     """
@@ -57,6 +75,36 @@ def list_audio_files(prefix=None, limit=100):
     """
     if storage_client is None:
         init_gcp_services()
+        
+    # For local development with mock data
+    if APP_CONFIG.get("debug", False) and storage_client is None:
+        logger.warning("Using mock audio file list for local development")
+        return [
+            {
+                "id": "audio/en/lesson1.mp3",
+                "name": "lesson1.mp3",
+                "size": 1024,
+                "updated": "2025-03-15T00:00:00Z",
+                "content_type": "audio/mpeg",
+                "language": "en"
+            },
+            {
+                "id": "audio/ja/lesson1.mp3",
+                "name": "lesson1.mp3",
+                "size": 2048,
+                "updated": "2025-03-15T00:00:00Z",
+                "content_type": "audio/mpeg",
+                "language": "ja"
+            },
+            {
+                "id": "audio/fr/lesson1.mp3",
+                "name": "lesson1.mp3",
+                "size": 2048,
+                "updated": "2025-03-15T00:00:00Z",
+                "content_type": "audio/mpeg",
+                "language": "fr"
+            }
+        ]
         
     try:
         bucket = storage_client.get_bucket(GCS_CONFIG["bucket_name"])
@@ -78,6 +126,18 @@ def list_audio_files(prefix=None, limit=100):
         return files
     except Exception as e:
         logger.error(f"Error listing audio files: {str(e)}")
+        if APP_CONFIG.get("debug", False):
+            logger.warning("Returning mock data for local development")
+            return [
+                {
+                    "id": "audio/en/lesson1.mp3",
+                    "name": "lesson1.mp3",
+                    "size": 1024,
+                    "updated": "2025-03-15T00:00:00Z",
+                    "content_type": "audio/mpeg",
+                    "language": "en"
+                }
+            ]
         raise
 
 def get_language_from_path(path):
@@ -111,6 +171,16 @@ def get_audio_file(file_id):
     if storage_client is None:
         init_gcp_services()
         
+    # For local development with mock data
+    if APP_CONFIG.get("debug", False) and storage_client is None:
+        logger.warning(f"Using mock audio data for {file_id}")
+        # Create a simple audio segment for testing
+        audio = AudioSegment.silent(duration=5000)  # 5 seconds of silence
+        buffer = BytesIO()
+        audio.export(buffer, format="mp3")
+        buffer.seek(0)
+        return buffer
+        
     try:
         bucket = storage_client.get_bucket(GCS_CONFIG["bucket_name"])
         blob = bucket.blob(file_id)
@@ -123,6 +193,13 @@ def get_audio_file(file_id):
         return data
     except Exception as e:
         logger.error(f"Error downloading audio file {file_id}: {str(e)}")
+        if APP_CONFIG.get("debug", False):
+            logger.warning("Returning mock audio data for local development")
+            audio = AudioSegment.silent(duration=5000)  # 5 seconds of silence
+            buffer = BytesIO()
+            audio.export(buffer, format="mp3")
+            buffer.seek(0)
+            return buffer
         raise
 
 def extract_sentences(audio_file_path, language_code):
@@ -136,9 +213,32 @@ def extract_sentences(audio_file_path, language_code):
     Returns:
         List of sentences with time tags
     """
-    # This is a placeholder function that would use the transcription API
+    # For local development with mock data
+    if APP_CONFIG.get("debug", False):
+        logger.warning(f"Using mock sentence data for {language_code}")
+        if language_code == "en":
+            return [
+                {"start_time": 0, "end_time": 5, "text": "Hello, how are you?"},
+                {"start_time": 6, "end_time": 10, "text": "I'm doing well, thank you."},
+                {"start_time": 11, "end_time": 15, "text": "What a beautiful day!"}
+            ]
+        elif language_code == "ja":
+            return [
+                {"start_time": 0, "end_time": 5, "text": "こんにちは、お元気ですか？"},
+                {"start_time": 6, "end_time": 10, "text": "はい、元気です。ありがとう。"},
+                {"start_time": 11, "end_time": 15, "text": "いい天気ですね！"}
+            ]
+        elif language_code == "fr":
+            return [
+                {"start_time": 0, "end_time": 5, "text": "Bonjour, comment allez-vous?"},
+                {"start_time": 6, "end_time": 10, "text": "Je vais bien, merci."},
+                {"start_time": 11, "end_time": 15, "text": "Quelle belle journée!"}
+            ]
+        else:
+            return []
+    
+    # This would use the transcription API in production
     # to extract sentences with time tags from the "language-learning-audio" bucket
-    # For now, we'll return an empty list
     return []
 
 def process_audio_playback(file_id, start_time=0, end_time=None, speed=1.0, repeat=False):
@@ -194,4 +294,15 @@ def process_audio_playback(file_id, start_time=0, end_time=None, speed=1.0, repe
         )
     except Exception as e:
         logger.error(f"Error processing audio file {file_id}: {str(e)}")
+        if APP_CONFIG.get("debug", False):
+            logger.warning("Returning mock audio data for local development")
+            audio = AudioSegment.silent(duration=5000)  # 5 seconds of silence
+            buffer = BytesIO()
+            audio.export(buffer, format="mp3")
+            buffer.seek(0)
+            return StreamingResponse(
+                buffer, 
+                media_type="audio/mpeg",
+                headers={"Content-Disposition": f"attachment; filename=mock-audio.mp3"}
+            )
         raise

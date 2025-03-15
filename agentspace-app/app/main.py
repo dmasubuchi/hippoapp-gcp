@@ -5,7 +5,7 @@ import os
 import logging
 from typing import Optional
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import uvicorn
@@ -54,7 +54,7 @@ async def home(request: Request):
     """Render the home page."""
     return templates.TemplateResponse("index.html", {"request": request})
 
-@app.get("/api/audio/{file_id}")
+@app.get("/api/audio/{file_id:path}")
 async def get_audio(file_id: str):
     """
     Get audio file metadata.
@@ -66,13 +66,40 @@ async def get_audio(file_id: str):
         JSON response with audio metadata
     """
     try:
+        # For debug mode, return mock data
+        if APP_CONFIG.get("debug", False):
+            logger.info(f"Debug mode: Returning mock audio metadata for {file_id}")
+            language = "en"
+            if "/ja/" in file_id:
+                language = "ja"
+            elif "/fr/" in file_id:
+                language = "fr"
+                
+            return {
+                "id": file_id,
+                "name": os.path.basename(file_id),
+                "size": 1024,
+                "updated": "2025-03-15T00:00:00Z",
+                "content_type": "audio/mpeg",
+                "language": language
+            }
+            
         audio_info = get_audio_file(file_id)
         return JSONResponse(content=audio_info)
     except Exception as e:
         logger.error(f"Error getting audio file {file_id}: {str(e)}")
+        if APP_CONFIG.get("debug", False):
+            logger.warning(f"Debug mode: Returning mock data for {file_id}")
+            return {
+                "id": file_id,
+                "name": os.path.basename(file_id),
+                "size": 1024,
+                "content_type": "audio/mpeg",
+                "language": "en"
+            }
         raise HTTPException(status_code=404, detail=f"Audio file not found: {str(e)}")
 
-@app.get("/api/audio/{file_id}/play")
+@app.get("/api/audio/{file_id:path}/play")
 async def play_audio(
     file_id: str, 
     start_time: float = 0, 
@@ -94,9 +121,43 @@ async def play_audio(
         Streaming response with audio data
     """
     try:
+        # For debug mode, return mock audio
+        if APP_CONFIG.get("debug", False):
+            logger.info(f"Debug mode: Generating mock audio for {file_id}")
+            # Create a simple audio segment for testing
+            from pydub import AudioSegment
+            from io import BytesIO
+            
+            audio = AudioSegment.silent(duration=5000)  # 5 seconds of silence
+            buffer = BytesIO()
+            audio.export(buffer, format="mp3")
+            buffer.seek(0)
+            
+            return StreamingResponse(
+                buffer, 
+                media_type="audio/mpeg",
+                headers={"Content-Disposition": f"attachment; filename=mock-audio.mp3"}
+            )
+            
         return process_audio_playback(file_id, int(start_time), int(end_time) if end_time is not None else None, speed, repeat)
     except Exception as e:
         logger.error(f"Error playing audio file {file_id}: {str(e)}")
+        if APP_CONFIG.get("debug", False):
+            logger.warning(f"Debug mode: Generating mock audio for error case")
+            # Create a simple audio segment for testing
+            from pydub import AudioSegment
+            from io import BytesIO
+            
+            audio = AudioSegment.silent(duration=3000)  # 3 seconds of silence
+            buffer = BytesIO()
+            audio.export(buffer, format="mp3")
+            buffer.seek(0)
+            
+            return StreamingResponse(
+                buffer, 
+                media_type="audio/mpeg",
+                headers={"Content-Disposition": f"attachment; filename=error-audio.mp3"}
+            )
         raise HTTPException(status_code=500, detail=f"Error playing audio: {str(e)}")
 
 @app.get("/api/languages")
