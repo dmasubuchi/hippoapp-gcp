@@ -1,0 +1,6 @@
+bindings:
+- members:
+  - serviceAccount:hippoapp-service@lucid-inquiry-453823-b0.iam.gserviceaccount.com
+  role: roles/run.invoker
+etag: ""
+version: 3 

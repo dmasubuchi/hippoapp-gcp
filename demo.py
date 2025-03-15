@@ -8,6 +8,7 @@ import argparse
 import logging
 import subprocess
 from pathlib import Path
+from google.cloud import storage
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -30,6 +31,12 @@ def test_auth():
         services_status = auth.test_gcp_services()
         for service, status in services_status.items():
             logger.info(f"Service {service}: {status}")
+        
+        # ADCを使用して認証
+        client = storage.Client()
+        
+        # バケットにアクセス
+        bucket = client.bucket('language-learning-audio')
         
         return True
     else:

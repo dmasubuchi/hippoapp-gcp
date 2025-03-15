@@ -15,6 +15,10 @@ const contentFilter = document.getElementById('content-filter');
 const chatHistory = document.getElementById('chat-history');
 const userInput = document.getElementById('user-input');
 const sendButton = document.getElementById('send-button');
+const prevLanguageBtn = document.getElementById('prev-language');
+const nextLanguageBtn = document.getElementById('next-language');
+const currentLanguageEl = document.getElementById('current-language');
+const sentenceContainer = document.getElementById('sentence-container');
 
 // Audio player functionality
 speedControl.addEventListener('input', function() {
@@ -22,6 +26,26 @@ speedControl.addEventListener('input', function() {
     audioElement.playbackRate = speed;
     speedValue.textContent = `${speed.toFixed(1)}x`;
 });
+
+// Language and sentence tracking
+const LANGUAGES = [
+    { code: 'en', name: 'English' },
+    { code: 'ja', name: 'Japanese' },
+    { code: 'fr', name: 'French' },
+    { code: 'es', name: 'Spanish' },
+    { code: 'de', name: 'German' },
+    { code: 'it', name: 'Italian' },
+    { code: 'zh', name: 'Chinese' },
+    { code: 'ko', name: 'Korean' },
+    { code: 'ru', name: 'Russian' },
+    { code: 'pt', name: 'Portuguese' },
+    { code: 'ar', name: 'Arabic' }
+];
+
+let currentLanguageIndex = 0;
+let currentSentenceIndex = 0;
+let sentences = {}; // Will store sentences for each language
+let currentAudioId = null;
 
 // Play button functionality
 document.querySelectorAll('.play-button').forEach(button => {
@@ -65,6 +89,16 @@ function playAudio(audioId, options = {}) {
     
     // Update audio info
     fetchAudioInfo(audioId);
+    
+    // Store current audio ID
+    currentAudioId = audioId;
+    
+    // Load sentences for all languages
+    currentLanguageIndex = 0; // Reset to first language
+    currentLanguageEl.textContent = LANGUAGES[currentLanguageIndex].name;
+    
+    // Load sentences for current language
+    loadSentences(audioId, LANGUAGES[currentLanguageIndex].code);
     
     // Play audio
     audioElement.play();
@@ -284,6 +318,288 @@ function addMessageToChat(message, sender) {
     // Scroll to bottom
     chatHistory.scrollTop = chatHistory.scrollHeight;
 }
+
+/**
+ * Load sentences for a specific language
+ * @param {string} audioId - ID of the audio file
+ * @param {string} languageCode - Language code
+ */
+async function loadSentences(audioId, languageCode) {
+    try {
+        // This would normally fetch from the API
+        // For now, we'll use placeholder data
+        const mockSentences = generateMockSentences(audioId, languageCode);
+        sentences[languageCode] = mockSentences;
+        
+        if (languageCode === LANGUAGES[currentLanguageIndex].code) {
+            renderSentences(mockSentences);
+        }
+        
+        return mockSentences;
+    } catch (error) {
+        console.error('Error loading sentences:', error);
+        return [];
+    }
+}
+
+/**
+ * Generate mock sentences for demo purposes
+ * This would be replaced with actual API data in production
+ */
+function generateMockSentences(audioId, languageCode) {
+    const sentenceCount = 10;
+    const mockSentences = [];
+    const baseTime = 10; // seconds per sentence
+    
+    // Different text for different languages
+    const textByLanguage = {
+        'en': [
+            "Hello, how are you?",
+            "I'm learning multiple languages.",
+            "The weather is nice today.",
+            "I like to travel around the world.",
+            "Music helps me learn languages.",
+            "Let's practice speaking together.",
+            "What time is it now?",
+            "I'm hungry, let's eat something.",
+            "This is a great learning app.",
+            "See you tomorrow!"
+        ],
+        'ja': [
+            "こんにちは、お元気ですか？",
+            "私は複数の言語を学んでいます。",
+            "今日は天気がいいですね。",
+            "世界中を旅行するのが好きです。",
+            "音楽は言語学習に役立ちます。",
+            "一緒に会話の練習をしましょう。",
+            "今何時ですか？",
+            "お腹が空きました、何か食べましょう。",
+            "これは素晴らしい学習アプリです。",
+            "また明日会いましょう！"
+        ],
+        'fr': [
+            "Bonjour, comment allez-vous ?",
+            "J'apprends plusieurs langues.",
+            "Il fait beau aujourd'hui.",
+            "J'aime voyager autour du monde.",
+            "La musique m'aide à apprendre les langues.",
+            "Pratiquons ensemble.",
+            "Quelle heure est-il maintenant ?",
+            "J'ai faim, mangeons quelque chose.",
+            "C'est une excellente application d'apprentissage.",
+            "À demain !"
+        ]
+    };
+    
+    // Default to English if language not found
+    const texts = textByLanguage[languageCode] || textByLanguage['en'];
+    
+    for (let i = 0; i < sentenceCount; i++) {
+        const startTime = i * baseTime;
+        const endTime = startTime + baseTime;
+        
+        mockSentences.push({
+            id: `${audioId}-${languageCode}-${i}`,
+            text: texts[i % texts.length],
+            startTime: startTime,
+            endTime: endTime,
+            languageCode: languageCode
+        });
+    }
+    
+    return mockSentences;
+}
+
+/**
+ * Render sentences in the UI
+ * @param {Array} sentenceList - List of sentences to render
+ */
+function renderSentences(sentenceList) {
+    sentenceContainer.innerHTML = '';
+    
+    sentenceList.forEach((sentence, index) => {
+        const sentenceEl = document.createElement('div');
+        sentenceEl.className = 'sentence';
+        sentenceEl.dataset.index = index;
+        
+        const minutes = Math.floor(sentence.startTime / 60);
+        const seconds = Math.floor(sentence.startTime % 60);
+        const timeStr = `[${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}]`;
+        
+        sentenceEl.innerHTML = `
+            <span class="sentence-time">${timeStr}</span>
+            <span class="sentence-text">${sentence.text}</span>
+        `;
+        
+        sentenceEl.addEventListener('click', () => {
+            jumpToSentence(index);
+        });
+        
+        sentenceContainer.appendChild(sentenceEl);
+    });
+}
+
+/**
+ * Jump to a specific sentence
+ * @param {number} index - Index of the sentence to jump to
+ */
+function jumpToSentence(index) {
+    const currentLanguage = LANGUAGES[currentLanguageIndex].code;
+    const sentenceList = sentences[currentLanguage];
+    
+    if (!sentenceList || index >= sentenceList.length) {
+        return;
+    }
+    
+    currentSentenceIndex = index;
+    const sentence = sentenceList[index];
+    
+    // Update audio playback position
+    audioElement.currentTime = sentence.startTime;
+    
+    // Highlight the current sentence
+    highlightCurrentSentence();
+    
+    // Start playback if paused
+    if (audioElement.paused) {
+        audioElement.play();
+    }
+}
+
+/**
+ * Highlight the current sentence
+ */
+function highlightCurrentSentence() {
+    // Remove active class from all sentences
+    document.querySelectorAll('.sentence').forEach(el => {
+        el.classList.remove('active');
+    });
+    
+    // Add active class to current sentence
+    const sentenceEl = document.querySelector(`.sentence[data-index="${currentSentenceIndex}"]`);
+    if (sentenceEl) {
+        sentenceEl.classList.add('active');
+        
+        // Scroll to the sentence if not visible
+        const containerRect = sentenceContainer.getBoundingClientRect();
+        const sentenceRect = sentenceEl.getBoundingClientRect();
+        
+        if (sentenceRect.top < containerRect.top || sentenceRect.bottom > containerRect.bottom) {
+            sentenceEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    }
+}
+
+/**
+ * Switch to a different language
+ * @param {number} direction - Direction to switch (-1 for previous, 1 for next)
+ */
+function switchLanguage(direction) {
+    const newIndex = (currentLanguageIndex + direction + LANGUAGES.length) % LANGUAGES.length;
+    const newLanguage = LANGUAGES[newIndex];
+    const oldLanguage = LANGUAGES[currentLanguageIndex];
+    
+    // Update current language index
+    currentLanguageIndex = newIndex;
+    
+    // Update UI
+    currentLanguageEl.textContent = newLanguage.name;
+    
+    // Load sentences for the new language if not already loaded
+    if (!sentences[newLanguage.code]) {
+        loadSentences(currentAudioId, newLanguage.code).then(() => {
+            // Find corresponding sentence in new language
+            syncSentencePosition(oldLanguage.code, newLanguage.code);
+        });
+    } else {
+        // Find corresponding sentence in new language
+        syncSentencePosition(oldLanguage.code, newLanguage.code);
+    }
+}
+
+/**
+ * Synchronize sentence position when switching languages
+ * @param {string} fromLang - Source language code
+ * @param {string} toLang - Target language code
+ */
+function syncSentencePosition(fromLang, toLang) {
+    const fromSentences = sentences[fromLang];
+    const toSentences = sentences[toLang];
+    
+    if (!fromSentences || !toSentences) {
+        return;
+    }
+    
+    // Find the current sentence in the source language
+    const currentSentence = fromSentences[currentSentenceIndex];
+    
+    // Find the corresponding sentence in the target language
+    // For now, we'll use the same index, but in a real implementation
+    // this would match based on meaning or time position
+    renderSentences(toSentences);
+    highlightCurrentSentence();
+    
+    // Update audio playback position
+    if (toSentences[currentSentenceIndex]) {
+        audioElement.currentTime = toSentences[currentSentenceIndex].startTime;
+    }
+}
+
+// Language navigation event listeners
+prevLanguageBtn.addEventListener('click', () => {
+    switchLanguage(-1);
+});
+
+nextLanguageBtn.addEventListener('click', () => {
+    switchLanguage(1);
+});
+
+// Add swipe gesture support for mobile
+let touchStartX = 0;
+let touchEndX = 0;
+
+sentenceContainer.addEventListener('touchstart', (e) => {
+    touchStartX = e.changedTouches[0].screenX;
+});
+
+sentenceContainer.addEventListener('touchend', (e) => {
+    touchEndX = e.changedTouches[0].screenX;
+    handleSwipe();
+});
+
+function handleSwipe() {
+    const swipeThreshold = 50;
+    if (touchEndX < touchStartX - swipeThreshold) {
+        // Swipe left - next language
+        switchLanguage(1);
+    } else if (touchEndX > touchStartX + swipeThreshold) {
+        // Swipe right - previous language
+        switchLanguage(-1);
+    }
+}
+
+// Audio timeupdate event to track current sentence
+audioElement.addEventListener('timeupdate', () => {
+    const currentTime = audioElement.currentTime;
+    const currentLanguage = LANGUAGES[currentLanguageIndex].code;
+    const sentenceList = sentences[currentLanguage];
+    
+    if (!sentenceList) {
+        return;
+    }
+    
+    // Find the current sentence based on time
+    for (let i = 0; i < sentenceList.length; i++) {
+        const sentence = sentenceList[i];
+        if (currentTime >= sentence.startTime && currentTime < sentence.endTime) {
+            if (currentSentenceIndex !== i) {
+                currentSentenceIndex = i;
+                highlightCurrentSentence();
+            }
+            break;
+        }
+    }
+});
 
 // Initialize application
 document.addEventListener('DOMContentLoaded', function() {
