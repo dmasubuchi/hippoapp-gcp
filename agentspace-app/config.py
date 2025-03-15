@@ -13,8 +13,8 @@ APP_CONFIG = {
 
 # Google Cloud Storage configuration
 GCS_CONFIG = {
-    "bucket_name": "hippoapp-audio-storage",
-    "project_id": "hippoapp-gcp",
+    "bucket_name": "language-learning-audio",
+    "project_id": "lucid-inquiry-453823-b0",
 }
 
 # Audio playback configuration
