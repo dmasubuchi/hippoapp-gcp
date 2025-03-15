@@ -4,7 +4,7 @@
 export PROJECT_ID=lucid-inquiry-453823-b0
 export REGION=us-west1
 export SERVICE_NAME=hippoapp
-export SERVICE_ACCOUNT=hippoapp-service@lucid-inquiry-453823-b0.iam.gserviceaccount.com
+export SERVICE_ACCOUNT=hippoapp-service@$PROJECT_ID.iam.gserviceaccount.com
 
 # Build the container image
 echo "Building container image..."
