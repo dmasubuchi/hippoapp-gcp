@@ -140,7 +140,7 @@ def extract_sentences(audio_file_path, language_code):
         List of sentences with time tags
     """
     # This is a placeholder function that would use the transcription API
-    # to extract sentences with time tags
+    # to extract sentences with time tags from the "language-learning-audio" bucket
     # For now, we'll return an empty list
     return []
 
