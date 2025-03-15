@@ -128,6 +128,22 @@ def download_audio_file(file_id):
         logger.error(f"Error downloading audio file {file_id}: {str(e)}")
         raise
 
+def extract_sentences(audio_file_path, language_code):
+    """
+    Extract sentences from audio file with time tags.
+    
+    Args:
+        audio_file_path: Path to the audio file
+        language_code: Language code for transcription
+        
+    Returns:
+        List of sentences with time tags
+    """
+    # This is a placeholder function that would use the transcription API
+    # to extract sentences with time tags
+    # For now, we'll return an empty list
+    return []
+
 def process_audio_playback(file_id, start_time=0, end_time=None, speed=1.0, repeat=False):
     """
     Process audio file for playback.
