@@ -1,8 +1,8 @@
 steps:
   # Build the container image
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'gcr.io/$PROJECT_ID/hippoapp:$COMMIT_SHA', './agentspace-app']
-    dir: '.'
+    args: ['build', '-t', 'gcr.io/$PROJECT_ID/hippoapp:$COMMIT_SHA', '.']
+    dir: 'agentspace-app'
   
   # Push the container image to Container Registry
   - name: 'gcr.io/cloud-builders/docker'
@@ -24,6 +24,8 @@ steps:
       - '--allow-unauthenticated'
       - '--service-account'
       - 'hippoapp-service@lucid-inquiry-453823-b0.iam.gserviceaccount.com'
+      - '--set-env-vars'
+      - 'GCP_PROJECT_ID=lucid-inquiry-453823-b0,GCP_STORAGE_BUCKET=language-learning-audio'
 
 images:
   - 'gcr.io/$PROJECT_ID/hippoapp:$COMMIT_SHA'
