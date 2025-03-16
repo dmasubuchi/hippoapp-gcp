@@ -6,6 +6,15 @@ export PROJECT_ID=lucid-inquiry-453823-b0
 export REGION=us-west1
 export SERVICE_ACCOUNT=hippoapp-service@$PROJECT_ID.iam.gserviceaccount.com
 
+echo "Starting direct deployment to App Engine..."
+
+# Check if gcloud is authenticated
+if ! gcloud auth list --filter=status:ACTIVE --format="value(account)" &>/dev/null; then
+    echo "Not authenticated with GCP. Attempting to authenticate..."
+    # For Devin environment, we'll use application default credentials
+    gcloud auth application-default login
+fi
+
 # Check if service account key exists
 if [ ! -f "credentials/service-account-key.json" ]; then
     echo "Service account key not found. Creating a mock key for testing..."
@@ -41,3 +50,5 @@ echo "Application URL: https://$PROJECT_ID.uw.r.appspot.com"
 echo "Verifying deployment..."
 sleep 10  # Wait for deployment to stabilize
 curl -s "https://$PROJECT_ID.uw.r.appspot.com/api/health" || echo "Health check failed. The application may still be starting up."
+
+echo "Deployment process complete. Please check the application at: https://$PROJECT_ID.uw.r.appspot.com"
