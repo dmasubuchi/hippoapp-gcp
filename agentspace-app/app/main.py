@@ -15,7 +15,7 @@ import sys
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent))
 from config import APP_CONFIG, GCS_CONFIG, AUDIO_CONFIG, LANGUAGE_CONFIG
-from app.utils import init_gcp_services, get_audio_file, process_audio_playback
+from app.utils import setup_gcp_services, get_audio_file, process_audio_playback
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -44,7 +44,7 @@ async def startup_event():
     """Initialize services on startup."""
     try:
         # Set up GCP services
-        init_gcp_services()
+        setup_gcp_services()
         logger.info("Application started successfully")
     except Exception as e:
         logger.error(f"Error during startup: {str(e)}")
