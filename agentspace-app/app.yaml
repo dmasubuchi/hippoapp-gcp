@@ -1,0 +1,14 @@
+runtime: python312
+entrypoint: uvicorn app.main:app --host=0.0.0.0 --port=$PORT
+
+env_variables:
+  GCP_PROJECT_ID: "lucid-inquiry-453823-b0"
+  GCP_STORAGE_BUCKET: "language-learning-audio"
+  DEBUG: "True"
+
+handlers:
+- url: /static
+  static_dir: app/static
+
+- url: /.*
+  script: auto
