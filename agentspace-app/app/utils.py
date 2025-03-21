@@ -45,18 +45,43 @@ def setup_gcp_services():
                 # Continue without a storage client for local development
                 storage_client = None
             return
-            
+               
         # For production with real credentials
         if credentials_path and os.path.exists(credentials_path):
             logger.info(f"Using service account credentials from: {credentials_path}")
-            credentials = service_account.Credentials.from_service_account_file(credentials_path)
-            storage_client = storage.Client(
-                project=GCS_CONFIG["project_id"],
-                credentials=credentials
-            )
+            try:
+                credentials = service_account.Credentials.from_service_account_file(credentials_path)
+                storage_client = storage.Client(
+                    project=GCS_CONFIG["project_id"],
+                    credentials=credentials
+                )
+            except Exception as e:
+                logger.error(f"Error loading credentials from {credentials_path}: {str(e)}")
+                if debug_mode:
+                    logger.warning("Continuing with mock services for local development")
+                    storage_client = None
+                    return
+                raise
         else:
-            logger.info("Using application default credentials")
-            storage_client = storage.Client(project=GCS_CONFIG["project_id"])
+            logger.warning(f"Credentials path not found or invalid: {credentials_path}")
+            if not credentials_path:
+                logger.warning("GOOGLE_APPLICATION_CREDENTIALS environment variable not set")
+            elif not os.path.exists(credentials_path):
+                logger.warning(f"Credentials file does not exist at: {credentials_path}")
+            elif os.path.getsize(credentials_path) == 0:
+                logger.warning(f"Credentials file exists but is empty: {credentials_path}")
+                
+            if debug_mode:
+                logger.warning("Debug mode enabled, continuing without GCP services")
+                storage_client = None
+                return
+                
+            logger.info("Attempting to use application default credentials")
+            try:
+                storage_client = storage.Client(project=GCS_CONFIG["project_id"])
+            except Exception as e:
+                logger.error(f"Failed to initialize with application default credentials: {str(e)}")
+                raise
             
         logger.info("GCP services initialized successfully")
     except Exception as e:

@@ -86,41 +86,4 @@ LANGUAGE_CONFIG = {
     }
 }
 
-# Audio configuration
-AUDIO_CONFIG = {
-    "formats": ["mp3", "wav", "ogg"],
-    "max_duration": 3600,  # Maximum duration in seconds
-    "default_speed": 1.0,
-}
-
-# Language configuration
-LANGUAGE_CONFIG = {
-    "default": "en",
-    "supported": {
-        "en": {
-            "name": "English",
-            "display_name": "English",
-            "flag": "🇺🇸",
-        },
-        "ja": {
-            "name": "Japanese",
-            "display_name": "日本語",
-            "flag": "🇯🇵",
-        },
-        "fr": {
-            "name": "French",
-            "display_name": "Français",
-            "flag": "🇫🇷",
-        },
-        "es": {
-            "name": "Spanish",
-            "display_name": "Español",
-            "flag": "🇪🇸",
-        },
-        "de": {
-            "name": "German",
-            "display_name": "Deutsch",
-            "flag": "🇩🇪",
-        },
-    },
-}
+# This section was removed to fix duplicate configuration
