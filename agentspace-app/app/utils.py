@@ -7,13 +7,14 @@ import tempfile
 from pathlib import Path
 import sys
 from google.cloud import storage
-from fastapi.responses import StreamingResponse
+from google.oauth2 import service_account
 from pydub import AudioSegment
+from fastapi.responses import StreamingResponse
 import io
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent))
-from config import GCS_CONFIG, PLAYBACK_CONFIG
+from config import GCS_CONFIG, AUDIO_CONFIG
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -23,16 +24,121 @@ logger = logging.getLogger(__name__)
 storage_client = None
 
 def setup_gcp_services():
-    """Set up Google Cloud Platform services."""
+    """Initialize GCP services with credentials."""
     global storage_client
     
     try:
-        # Initialize Storage client
-        storage_client = storage.Client()
+        # Get credentials path from environment
+        credentials_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+        
+        # Check if we're in debug mode
+        debug_mode = os.environ.get("DEBUG", "False").lower() in ("true", "1", "t")
+        
+        if debug_mode:
+            logger.warning("Debug mode enabled, using mock credentials for local development")
+            try:
+                # Try to use default credentials
+                storage_client = storage.Client(project=GCS_CONFIG["project_id"])
+                logger.info("Successfully initialized with default credentials")
+            except Exception as e:
+                logger.warning(f"Could not initialize with default credentials: {str(e)}")
+                # Continue without a storage client for local development
+                storage_client = None
+            return
+            
+        # For production with real credentials
+        if credentials_path and os.path.exists(credentials_path):
+            logger.info(f"Using service account credentials from: {credentials_path}")
+            credentials = service_account.Credentials.from_service_account_file(credentials_path)
+            storage_client = storage.Client(
+                project=GCS_CONFIG["project_id"],
+                credentials=credentials
+            )
+        else:
+            logger.info("Using application default credentials")
+            storage_client = storage.Client(project=GCS_CONFIG["project_id"])
+            
         logger.info("GCP services initialized successfully")
     except Exception as e:
         logger.error(f"Error initializing GCP services: {str(e)}")
+        if debug_mode:
+            logger.warning("Continuing with mock services for local development")
+            storage_client = None
+        else:
+            raise
+
+def list_audio_files(prefix=None, limit=100):
+    """
+    List audio files in the GCS bucket.
+    
+    Args:
+        prefix: Optional prefix to filter files
+        limit: Maximum number of files to return
+        
+    Returns:
+        List of file metadata
+    """
+    if storage_client is None:
+        setup_gcp_services()
+        
+    try:
+        bucket = storage_client.get_bucket(GCS_CONFIG["bucket_name"])
+        blobs = bucket.list_blobs(prefix=prefix, max_results=limit)
+        
+        files = []
+        for blob in blobs:
+            # Only include audio files
+            if blob.name.endswith(('.mp3', '.wav', '.ogg')):
+                files.append({
+                    "id": blob.name,
+                    "name": os.path.basename(blob.name),
+                    "size": blob.size,
+                    "updated": blob.updated,
+                    "content_type": blob.content_type,
+                    "language": get_language_from_path(blob.name)
+                })
+        
+        return files
+    except Exception as e:
+        logger.error(f"Error listing audio files: {str(e)}")
         raise
+
+def get_language_from_path(path):
+    """
+    Extract language code from file path.
+    
+    Args:
+        path: File path (e.g., 'audio/en/lesson1.mp3')
+        
+    Returns:
+        str: Language code (e.g., 'en') or 'unknown' if not found
+    """
+    # Common language codes in paths
+    language_patterns = {
+        '/en/': 'en',    # English
+        '/ja/': 'ja',    # Japanese
+        '/fr/': 'fr',    # French
+        '/es/': 'es',    # Spanish
+        '/de/': 'de',    # German
+        '/zh/': 'zh',    # Chinese
+        '/ko/': 'ko',    # Korean
+        '/it/': 'it',    # Italian
+        '/ru/': 'ru',    # Russian
+        '/pt/': 'pt'     # Portuguese
+    }
+    
+    # Check for language code in path
+    for pattern, lang_code in language_patterns.items():
+        if pattern in path:
+            return lang_code
+            
+    # Alternative method: extract from path segments
+    parts = path.split('/')
+    for part in parts:
+        if len(part) == 2 and part.isalpha():
+            return part
+            
+    return 'unknown'
 
 def get_audio_file(file_id):
     """
@@ -48,6 +154,25 @@ def get_audio_file(file_id):
     
     if storage_client is None:
         setup_gcp_services()
+        
+    # For local development with mock data
+    debug_mode = os.environ.get("DEBUG", "False").lower() in ("true", "1", "t")
+    if debug_mode and storage_client is None:
+        logger.warning(f"Using mock audio data for {file_id}")
+        language = "en"
+        if "/ja/" in file_id:
+            language = "ja"
+        elif "/fr/" in file_id:
+            language = "fr"
+            
+        return {
+            "id": file_id,
+            "name": os.path.basename(file_id),
+            "size": 1024,
+            "updated": "2025-03-15T00:00:00Z",
+            "content_type": "audio/mpeg",
+            "language": language
+        }
     
     try:
         # Get bucket
@@ -70,62 +195,21 @@ def get_audio_file(file_id):
             "content_type": blob.content_type,
             "updated": blob.updated.isoformat(),
             "url": f"gs://{GCS_CONFIG['bucket_name']}/{blob.name}",
+            "language": get_language_from_path(blob.name)
         }
-        
-        # Add custom metadata if available
-        if blob.metadata:
-            metadata.update(blob.metadata)
         
         return metadata
     except Exception as e:
         logger.error(f"Error getting audio file {file_id}: {str(e)}")
-        raise
-
-def download_audio_file(file_id):
-    """
-    Download audio file from Google Cloud Storage.
-    
-    Args:
-        file_id: ID of the audio file
-        
-    Returns:
-        str: Path to the downloaded file
-    """
-    global storage_client
-    
-    if storage_client is None:
-        setup_gcp_services()
-    
-    try:
-        # Get bucket
-        bucket = storage_client.bucket(GCS_CONFIG["bucket_name"])
-        
-        # List blobs with prefix
-        blobs = list(bucket.list_blobs(prefix=f"audio/{file_id}"))
-        
-        if not blobs:
-            raise ValueError(f"Audio file {file_id} not found")
-        
-        # Get the first matching blob
-        blob = blobs[0]
-        
-        # Create cache directory if it doesn't exist
-        os.makedirs(PLAYBACK_CONFIG["cache_directory"], exist_ok=True)
-        
-        # Download to cache
-        file_name = os.path.basename(blob.name)
-        local_path = os.path.join(PLAYBACK_CONFIG["cache_directory"], file_name)
-        
-        # Check if file already exists in cache
-        if os.path.exists(local_path) and os.path.getsize(local_path) == blob.size:
-            logger.info(f"Using cached file {local_path}")
-        else:
-            logger.info(f"Downloading {blob.name} to {local_path}")
-            blob.download_to_filename(local_path)
-        
-        return local_path
-    except Exception as e:
-        logger.error(f"Error downloading audio file {file_id}: {str(e)}")
+        if debug_mode:
+            logger.warning("Returning mock data for local development")
+            return {
+                "id": file_id,
+                "name": os.path.basename(file_id),
+                "size": 1024,
+                "content_type": "audio/mpeg",
+                "language": "en"
+            }
         raise
 
 def extract_sentences(audio_file_path, language_code):
@@ -146,67 +230,134 @@ def extract_sentences(audio_file_path, language_code):
 
 def process_audio_playback(file_id, start_time=0, end_time=None, speed=1.0, repeat=False):
     """
-    Process audio file for playback.
+    Process audio file for playback with streaming response.
     
     Args:
-        file_id: ID of the audio file
+        file_id: File ID (path in bucket)
         start_time: Start time in seconds
         end_time: End time in seconds
-        speed: Playback speed
+        speed: Playback speed (0.5 to 2.0)
         repeat: Whether to repeat the audio
         
     Returns:
-        StreamingResponse: Streaming response with audio data
+        StreamingResponse: Audio data stream
     """
+    # Check if we're in debug mode
+    debug_mode = os.environ.get("DEBUG", "False").lower() in ("true", "1", "t")
+    
     try:
-        # Download audio file
-        local_path = download_audio_file(file_id)
-        
-        # Get file extension
-        file_ext = os.path.splitext(local_path)[1].lower().replace(".", "")
-        
-        # Load audio file
-        if file_ext == "mp3":
-            audio = AudioSegment.from_mp3(local_path)
-        elif file_ext == "wav":
-            audio = AudioSegment.from_wav(local_path)
-        elif file_ext == "ogg":
-            audio = AudioSegment.from_ogg(local_path)
-        elif file_ext == "flac":
-            audio = AudioSegment.from_file(local_path, format="flac")
-        else:
-            raise ValueError(f"Unsupported audio format: {file_ext}")
-        
-        # Apply start and end times
-        start_ms = int(start_time * 1000)
-        end_ms = int(end_time * 1000) if end_time is not None else len(audio)
-        
-        audio = audio[start_ms:end_ms]
-        
-        # Apply speed adjustment
-        if speed != 1.0:
-            # Check if speed is within allowed range
-            if speed < PLAYBACK_CONFIG["speed_range"][0] or speed > PLAYBACK_CONFIG["speed_range"][1]:
-                raise ValueError(f"Speed {speed} is outside allowed range {PLAYBACK_CONFIG['speed_range']}")
+        # For debug mode with no storage client, return mock audio
+        if debug_mode and (storage_client is None):
+            logger.info(f"Debug mode: Generating mock audio for {file_id}")
             
-            # Adjust speed (this is a simple implementation, more sophisticated methods exist)
-            audio = audio.speedup(playback_speed=speed)
+            # Create a simple audio segment for testing
+            # Different sounds for different languages
+            if "/ja/" in file_id:
+                # Japanese - higher pitch tone
+                audio = AudioSegment.silent(duration=500)
+                for i in range(10):
+                    tone = AudioSegment.sine(440 + (i * 50), duration=500)
+                    audio += tone
+            elif "/fr/" in file_id:
+                # French - lower pitch tone
+                audio = AudioSegment.silent(duration=500)
+                for i in range(10):
+                    tone = AudioSegment.sine(330 + (i * 40), duration=500)
+                    audio += tone
+            else:
+                # Default/English - medium pitch tone
+                audio = AudioSegment.silent(duration=500)
+                for i in range(10):
+                    tone = AudioSegment.sine(380 + (i * 45), duration=500)
+                    audio += tone
+            
+            # Apply speed change if needed
+            if speed != 1.0:
+                # Ensure speed is within reasonable bounds
+                speed = max(0.5, min(2.0, speed))
+                audio = audio.speedup(playback_speed=speed)
+            
+            # Apply repeat if needed
+            if repeat:
+                audio = audio * 3
+            
+            # Export to buffer
+            buffer = io.BytesIO()
+            audio.export(buffer, format="mp3")
+            buffer.seek(0)
+            
+            # Return streaming response
+            return StreamingResponse(
+                buffer, 
+                media_type="audio/mpeg",
+                headers={"Content-Disposition": f"attachment; filename=mock-{os.path.basename(file_id)}"}
+            )
         
-        # Apply repeat if needed
-        if repeat:
-            audio = audio * 3  # Repeat 3 times
+        # For production: Get audio file from GCS
+        # First get metadata
+        metadata = get_audio_file(file_id)
         
-        # Export to bytes
-        buffer = io.BytesIO()
-        audio.export(buffer, format=file_ext)
-        buffer.seek(0)
+        # Then download the actual audio file
+        bucket = storage_client.bucket(GCS_CONFIG["bucket_name"])
+        blob = bucket.blob(metadata["name"])
         
-        # Create streaming response
-        return StreamingResponse(
-            buffer, 
-            media_type=f"audio/{file_ext}",
-            headers={"Content-Disposition": f"attachment; filename={file_id}.{file_ext}"}
-        )
+        # Download to temporary file
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+        blob.download_to_filename(temp_file.name)
+        temp_file.close()
+        
+        try:
+            # Load audio with pydub
+            audio = AudioSegment.from_file(temp_file.name)
+            
+            # Apply start and end times
+            start_ms = int(start_time * 1000)
+            end_ms = int(end_time * 1000) if end_time is not None else len(audio)
+            
+            # Ensure start and end times are within bounds
+            start_ms = max(0, min(start_ms, len(audio)))
+            end_ms = max(start_ms, min(end_ms, len(audio)))
+            
+            # Extract segment
+            segment = audio[start_ms:end_ms]
+            
+            # Apply speed change
+            if speed != 1.0:
+                # Ensure speed is within reasonable bounds
+                speed = max(0.5, min(2.0, speed))
+                segment = segment.speedup(playback_speed=speed)
+            
+            # Apply repeat if needed
+            if repeat:
+                segment = segment * 3  # Repeat 3 times
+            
+            # Convert to bytes
+            output = io.BytesIO()
+            segment.export(output, format="mp3")
+            output.seek(0)
+            
+            # Return streaming response
+            return StreamingResponse(
+                output, 
+                media_type="audio/mpeg",
+                headers={"Content-Disposition": f"attachment; filename={os.path.basename(file_id)}"}
+            )
+        finally:
+            # Clean up temporary file
+            if os.path.exists(temp_file.name):
+                os.unlink(temp_file.name)
+                
     except Exception as e:
-        logger.error(f"Error processing audio playback for {file_id}: {str(e)}")
+        logger.error(f"Error processing audio file {file_id}: {str(e)}")
+        if debug_mode:
+            logger.warning("Generating mock audio for error case")
+            audio = AudioSegment.silent(duration=3000)  # 3 seconds of silence
+            buffer = io.BytesIO()
+            audio.export(buffer, format="mp3")
+            buffer.seek(0)
+            return StreamingResponse(
+                buffer, 
+                media_type="audio/mpeg",
+                headers={"Content-Disposition": f"attachment; filename=error-audio.mp3"}
+            )
         raise

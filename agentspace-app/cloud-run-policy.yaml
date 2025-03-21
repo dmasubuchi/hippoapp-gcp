@@ -1,0 +1,10 @@
+name: projects/lucid-inquiry-453823-b0/policies/iam.allowedPolicyMemberDomains
+spec:
+  rules:
+  - condition:
+      expression: "resource.service == 'run.googleapis.com'"
+      title: "Cloud Run services"
+    values:
+      allowed_values:
+      - "allUsers"
+      - "allAuthenticatedUsers"

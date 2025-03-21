@@ -1,8 +1,6 @@
-# Git
 .git
 .gitignore
-
-# Python
+.gcloudignore
 __pycache__/
 *.py[cod]
 *$py.class
@@ -23,33 +21,21 @@ var/
 *.egg-info/
 .installed.cfg
 *.egg
-
-# Virtual Environment
+node_modules/
+.env
+.venv
 venv/
 ENV/
-
-# IDE
 .idea/
 .vscode/
 *.swp
 *.swo
-
-# Logs
-logs/
-*.log
-
-# Local development
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-
-# Temporary files
-tmp/
-temp/
-
-# Google Cloud SDK
+.DS_Store
+test/
+docs/
+*.md
+!README.md
+!DEPLOYMENT_GUIDE.md
 google-cloud-sdk/
-
-# Backup files
-*.bak
+credentials/
+agents/
