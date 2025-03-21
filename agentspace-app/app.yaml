@@ -4,7 +4,7 @@ entrypoint: gunicorn -w 4 -k uvicorn.workers.UvicornWorker app.main:app
 env_variables:
   GCP_PROJECT_ID: "lucid-inquiry-453823-b0"
   GCP_STORAGE_BUCKET: "language-learning-audio"
-  DEBUG: "False"
+  DEBUG: "True"
   GOOGLE_APPLICATION_CREDENTIALS: "/app/credentials/service-account-key.json"
 
 handlers:
