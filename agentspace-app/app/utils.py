@@ -34,6 +34,8 @@ def setup_gcp_services():
         # Check if we're in debug mode
         debug_mode = os.environ.get("DEBUG", "False").lower() in ("true", "1", "t")
         
+        logger.info(f"Setting up GCP services with credentials path: {credentials_path}")
+        
         if debug_mode:
             logger.warning("Debug mode enabled, using mock credentials for local development")
             try:
@@ -50,6 +52,30 @@ def setup_gcp_services():
         if credentials_path and os.path.exists(credentials_path):
             logger.info(f"Using service account credentials from: {credentials_path}")
             try:
+                # Check if file is empty
+                if os.path.getsize(credentials_path) == 0:
+                    logger.error(f"Credentials file exists but is empty: {credentials_path}")
+                    if debug_mode:
+                        logger.warning("Debug mode: Continuing with mock services")
+                        storage_client = None
+                        return
+                    raise ValueError(f"Empty credentials file: {credentials_path}")
+                
+                # Check if file is valid JSON
+                try:
+                    import json
+                    with open(credentials_path, 'r') as f:
+                        json.load(f)
+                except json.JSONDecodeError:
+                    logger.error(f"Credentials file is not valid JSON: {credentials_path}")
+                    if debug_mode:
+                        logger.warning("Debug mode: Continuing with mock services")
+                        storage_client = None
+                        return
+                    raise ValueError(f"Invalid JSON in credentials file: {credentials_path}")
+                
+                # Load credentials
+                logger.info(f"Loading credentials from: {credentials_path}")
                 credentials = service_account.Credentials.from_service_account_file(credentials_path)
                 storage_client = storage.Client(
                     project=GCS_CONFIG["project_id"],
@@ -81,13 +107,17 @@ def setup_gcp_services():
                 storage_client = storage.Client(project=GCS_CONFIG["project_id"])
             except Exception as e:
                 logger.error(f"Failed to initialize with application default credentials: {str(e)}")
+                if debug_mode:
+                    logger.warning("Debug mode: Continuing with mock services")
+                    storage_client = None
+                    return
                 raise
             
         logger.info("GCP services initialized successfully")
     except Exception as e:
         logger.error(f"Error initializing GCP services: {str(e)}")
         if debug_mode:
-            logger.warning("Continuing with mock services for local development")
+            logger.warning("Debug mode: Continuing with mock services")
             storage_client = None
         else:
             raise
@@ -253,6 +283,159 @@ def extract_sentences(audio_file_path, language_code):
     # For now, we'll return an empty list
     return []
 
+def generate_mock_audio(file_id, start_time=0, end_time=None, speed=1.0, repeat=False):
+    """
+    Generate mock audio for testing and debug mode.
+    
+    Args:
+        file_id: File ID to simulate
+        start_time: Start time in seconds
+        end_time: End time in seconds
+        speed: Playback speed
+        repeat: Whether to repeat the audio
+        
+    Returns:
+        StreamingResponse: Audio data stream with mock audio
+    """
+    try:
+        logger.info(f"Generating mock audio for {file_id}")
+        
+        # Different sounds for different languages
+        if "/ja/" in file_id:
+            # Japanese - higher pitch tone
+            audio = AudioSegment.silent(duration=500)
+            for i in range(10):
+                tone = AudioSegment.sine(440 + (i * 50), duration=500)
+                audio += tone
+        elif "/fr/" in file_id:
+            # French - lower pitch tone
+            audio = AudioSegment.silent(duration=500)
+            for i in range(10):
+                tone = AudioSegment.sine(330 + (i * 40), duration=500)
+                audio += tone
+        elif "/es/" in file_id:
+            # Spanish - alternating tones
+            audio = AudioSegment.silent(duration=500)
+            for i in range(10):
+                tone = AudioSegment.sine(350 + (i * 30 * (i % 2 + 1)), duration=500)
+                audio += tone
+        elif "/de/" in file_id:
+            # German - descending tones
+            audio = AudioSegment.silent(duration=500)
+            for i in range(10):
+                tone = AudioSegment.sine(500 - (i * 20), duration=500)
+                audio += tone
+        else:
+            # Default/English - medium pitch tone
+            audio = AudioSegment.silent(duration=500)
+            for i in range(10):
+                tone = AudioSegment.sine(380 + (i * 45), duration=500)
+                audio += tone
+        
+        # Apply speed change if needed
+        if speed != 1.0:
+            # Get speed range from config
+            min_speed = AUDIO_CONFIG.get("speed_range", {}).get("min", 0.5)
+            max_speed = AUDIO_CONFIG.get("speed_range", {}).get("max", 2.0)
+            
+            # Ensure speed is within reasonable bounds
+            speed = max(min_speed, min(max_speed, speed))
+            audio = audio.speedup(playback_speed=speed)
+        
+        # Apply repeat if needed
+        if repeat:
+            audio = audio * 3
+        
+        # Export to buffer
+        buffer = io.BytesIO()
+        audio.export(buffer, format="mp3")
+        buffer.seek(0)
+        
+        # Return streaming response
+        return StreamingResponse(
+            buffer, 
+            media_type="audio/mpeg",
+            headers={"Content-Disposition": f"attachment; filename=mock-{os.path.basename(file_id)}"}
+        )
+    except Exception as e:
+        logger.error(f"Error generating mock audio: {str(e)}")
+        # Return silent audio as fallback
+        audio = AudioSegment.silent(duration=3000)  # 3 seconds of silence
+        buffer = io.BytesIO()
+        audio.export(buffer, format="mp3")
+        buffer.seek(0)
+        return StreamingResponse(
+            buffer, 
+            media_type="audio/mpeg",
+            headers={"Content-Disposition": f"attachment; filename=error-audio.mp3"}
+        )
+
+def process_real_audio(audio_path, start_time=0, end_time=None, speed=1.0, repeat=False):
+    """
+    Process real audio file for playback.
+    
+    Args:
+        audio_path: Path to the audio file
+        start_time: Start time in seconds
+        end_time: End time in seconds
+        speed: Playback speed
+        repeat: Whether to repeat the audio
+        
+    Returns:
+        StreamingResponse: Audio data stream
+    """
+    try:
+        # Get file extension
+        file_ext = os.path.splitext(audio_path)[1].lower().replace(".", "")
+        if not file_ext:
+            file_ext = "mp3"  # Default to mp3 if no extension
+        
+        # Load audio with pydub
+        audio = AudioSegment.from_file(audio_path, format=file_ext)
+        
+        # Apply start and end times
+        start_ms = int(start_time * 1000)
+        end_ms = int(end_time * 1000) if end_time is not None else len(audio)
+        
+        # Ensure start and end times are within bounds
+        start_ms = max(0, min(start_ms, len(audio)))
+        end_ms = max(start_ms, min(end_ms, len(audio)))
+        
+        # Extract segment
+        segment = audio[start_ms:end_ms]
+        
+        # Apply speed change
+        if speed != 1.0:
+            # Get speed range from config
+            min_speed = AUDIO_CONFIG.get("speed_range", {}).get("min", 0.5)
+            max_speed = AUDIO_CONFIG.get("speed_range", {}).get("max", 2.0)
+            
+            # Ensure speed is within reasonable bounds
+            if speed < min_speed or speed > max_speed:
+                logger.warning(f"Speed {speed} outside allowed range {min_speed}-{max_speed}, clamping")
+                speed = max(min_speed, min(max_speed, speed))
+                
+            segment = segment.speedup(playback_speed=speed)
+        
+        # Apply repeat if needed
+        if repeat:
+            segment = segment * 3  # Repeat 3 times
+        
+        # Convert to bytes
+        output = io.BytesIO()
+        segment.export(output, format=file_ext)
+        output.seek(0)
+        
+        # Return streaming response
+        return StreamingResponse(
+            output, 
+            media_type=f"audio/{file_ext}",
+            headers={"Content-Disposition": f"attachment; filename={os.path.basename(audio_path)}"}
+        )
+    except Exception as e:
+        logger.error(f"Error processing audio file {audio_path}: {str(e)}")
+        raise
+
 def process_audio_playback(file_id, start_time=0, end_time=None, speed=1.0, repeat=False):
     """
     Process audio file for playback with streaming response.
@@ -273,50 +456,7 @@ def process_audio_playback(file_id, start_time=0, end_time=None, speed=1.0, repe
     try:
         # For debug mode with no storage client, return mock audio
         if debug_mode and (storage_client is None):
-            logger.info(f"Debug mode: Generating mock audio for {file_id}")
-            
-            # Create a simple audio segment for testing
-            # Different sounds for different languages
-            if "/ja/" in file_id:
-                # Japanese - higher pitch tone
-                audio = AudioSegment.silent(duration=500)
-                for i in range(10):
-                    tone = AudioSegment.sine(440 + (i * 50), duration=500)
-                    audio += tone
-            elif "/fr/" in file_id:
-                # French - lower pitch tone
-                audio = AudioSegment.silent(duration=500)
-                for i in range(10):
-                    tone = AudioSegment.sine(330 + (i * 40), duration=500)
-                    audio += tone
-            else:
-                # Default/English - medium pitch tone
-                audio = AudioSegment.silent(duration=500)
-                for i in range(10):
-                    tone = AudioSegment.sine(380 + (i * 45), duration=500)
-                    audio += tone
-            
-            # Apply speed change if needed
-            if speed != 1.0:
-                # Ensure speed is within reasonable bounds
-                speed = max(0.5, min(2.0, speed))
-                audio = audio.speedup(playback_speed=speed)
-            
-            # Apply repeat if needed
-            if repeat:
-                audio = audio * 3
-            
-            # Export to buffer
-            buffer = io.BytesIO()
-            audio.export(buffer, format="mp3")
-            buffer.seek(0)
-            
-            # Return streaming response
-            return StreamingResponse(
-                buffer, 
-                media_type="audio/mpeg",
-                headers={"Content-Disposition": f"attachment; filename=mock-{os.path.basename(file_id)}"}
-            )
+            return generate_mock_audio(file_id, start_time, end_time, speed, repeat)
         
         # For production: Get audio file from GCS
         # First get metadata
@@ -326,47 +466,25 @@ def process_audio_playback(file_id, start_time=0, end_time=None, speed=1.0, repe
         bucket = storage_client.bucket(GCS_CONFIG["bucket_name"])
         blob = bucket.blob(metadata["name"])
         
+        # Create cache directory if it doesn't exist
+        cache_dir = AUDIO_CONFIG.get("cache_directory", "/tmp/hippoapp-cache")
+        os.makedirs(cache_dir, exist_ok=True)
+        
+        # Use cache if available
+        cache_file_path = os.path.join(cache_dir, os.path.basename(file_id))
+        
+        if os.path.exists(cache_file_path):
+            logger.info(f"Using cached audio file: {cache_file_path}")
+            return process_real_audio(cache_file_path, start_time, end_time, speed, repeat)
+        
         # Download to temporary file
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
         blob.download_to_filename(temp_file.name)
         temp_file.close()
         
         try:
-            # Load audio with pydub
-            audio = AudioSegment.from_file(temp_file.name)
-            
-            # Apply start and end times
-            start_ms = int(start_time * 1000)
-            end_ms = int(end_time * 1000) if end_time is not None else len(audio)
-            
-            # Ensure start and end times are within bounds
-            start_ms = max(0, min(start_ms, len(audio)))
-            end_ms = max(start_ms, min(end_ms, len(audio)))
-            
-            # Extract segment
-            segment = audio[start_ms:end_ms]
-            
-            # Apply speed change
-            if speed != 1.0:
-                # Ensure speed is within reasonable bounds
-                speed = max(0.5, min(2.0, speed))
-                segment = segment.speedup(playback_speed=speed)
-            
-            # Apply repeat if needed
-            if repeat:
-                segment = segment * 3  # Repeat 3 times
-            
-            # Convert to bytes
-            output = io.BytesIO()
-            segment.export(output, format="mp3")
-            output.seek(0)
-            
-            # Return streaming response
-            return StreamingResponse(
-                output, 
-                media_type="audio/mpeg",
-                headers={"Content-Disposition": f"attachment; filename={os.path.basename(file_id)}"}
-            )
+            # Process the audio file
+            return process_real_audio(temp_file.name, start_time, end_time, speed, repeat)
         finally:
             # Clean up temporary file
             if os.path.exists(temp_file.name):
@@ -376,13 +494,5 @@ def process_audio_playback(file_id, start_time=0, end_time=None, speed=1.0, repe
         logger.error(f"Error processing audio file {file_id}: {str(e)}")
         if debug_mode:
             logger.warning("Generating mock audio for error case")
-            audio = AudioSegment.silent(duration=3000)  # 3 seconds of silence
-            buffer = io.BytesIO()
-            audio.export(buffer, format="mp3")
-            buffer.seek(0)
-            return StreamingResponse(
-                buffer, 
-                media_type="audio/mpeg",
-                headers={"Content-Disposition": f"attachment; filename=error-audio.mp3"}
-            )
+            return generate_mock_audio(file_id, start_time, end_time, speed, repeat)
         raise
