@@ -13,3 +13,5 @@ handlers:
   
 - url: /.*
   script: auto
+
+instance_class: F2

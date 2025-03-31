@@ -112,7 +112,42 @@ async def get_languages():
 @app.get("/api/health")
 async def health_check():
     """Health check endpoint."""
-    return {"status": "healthy"}
+    try:
+        # Import storage_client from utils module
+        from app.utils import storage_client
+        
+        # Check if GCP services are initialized
+        debug_mode = os.environ.get("DEBUG", "False").lower() in ("true", "1", "t")
+        
+        if storage_client is not None:
+            return {
+                "status": "healthy", 
+                "gcp_services": "connected",
+                "environment": os.environ.get("GAE_ENV", "non-app-engine"),
+                "debug_mode": debug_mode
+            }
+        else:
+            if debug_mode:
+                return {
+                    "status": "healthy", 
+                    "gcp_services": "mock (debug mode)",
+                    "environment": os.environ.get("GAE_ENV", "non-app-engine"),
+                    "debug_mode": True
+                }
+            else:
+                return {
+                    "status": "degraded", 
+                    "gcp_services": "disconnected",
+                    "environment": os.environ.get("GAE_ENV", "non-app-engine"),
+                    "debug_mode": False
+                }
+    except Exception as e:
+        logger.error(f"Health check error: {str(e)}")
+        return {
+            "status": "error", 
+            "message": str(e),
+            "environment": os.environ.get("GAE_ENV", "non-app-engine")
+        }
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
